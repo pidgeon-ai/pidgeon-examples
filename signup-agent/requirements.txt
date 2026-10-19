@@ -1,0 +1,3 @@
+browser-use==0.13.11
+pidgeon==1.14.1
+playwright>=1.50,<2
