@@ -57,13 +57,13 @@ class Mailer:
             sys.exit("SITE_PIDGEON_API_KEY reaches no address. Run `python site/sender.py` to make one.")
         self.address = listed.data[0].email
 
-    def send(self, to: str, subject: str, text: str) -> None:
+    def send(self, to: str, subject: str, text: str) -> str | None:
+        """None when it went; otherwise what Pidgeon said, for the page and the log."""
         sent = messages_send.sync(
             client=self.client,
             body=MessagesSendBody(from_=self.address, to=to, subject=subject, text=text),
         )
-        if isinstance(sent, Error):
-            raise RuntimeError(sent.error.message)
+        return sent.error.message if isinstance(sent, Error) else None
 
 
 PAGE = """<!doctype html>
@@ -107,6 +107,10 @@ class Site(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def not_sent(self, reason: str) -> None:
+        log(f"could not send: {reason}")
+        self.page("We couldn’t send the email", f'<p class="error">{html.escape(reason)}</p>', 503)
 
     def redirect(self, location: str, cookie: str | None = None) -> None:
         self.send_response(303)
@@ -222,7 +226,7 @@ class Site(BaseHTTPRequestHandler):
             }
             TOKENS[token] = ("confirm", email)
             log(f"sign-up from {email}; sending code {code}")
-            self.mailer.send(
+            failed = self.mailer.send(
                 email,
                 "Your verification code",
                 f"Hi {ACCOUNTS[email]['name']},\n\n"
@@ -230,6 +234,8 @@ class Site(BaseHTTPRequestHandler):
                 f"Or confirm your email with this link:\n{self.base}/confirm?token={token}\n\n"
                 "If you didn’t sign up, ignore this email.\n",
             )
+            if failed:
+                return self.not_sent(failed)
             self.redirect("/verify?" + urlencode({"email": email}))
         elif url.path == "/verify":
             account = ACCOUNTS.get(email)
@@ -244,13 +250,15 @@ class Site(BaseHTTPRequestHandler):
             if email in ACCOUNTS:
                 TOKENS[token] = ("reset", email)
                 log(f"password reset requested for {email}")
-                self.mailer.send(
+                failed = self.mailer.send(
                     email,
                     "Reset your password",
                     "Somebody asked to reset the password for this address.\n\n"
                     f"Reset your password:\n{self.base}/reset?token={token}\n\n"
                     "If it wasn’t you, ignore this email.\n",
                 )
+                if failed:
+                    return self.not_sent(failed)
             self.page("Check your email", "<p>If that address has an account, a reset link is on its way.</p>")
         elif url.path == "/reset":
             purpose, email = TOKENS.pop(data.get("token", ""), ("", ""))

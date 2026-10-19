@@ -18,6 +18,13 @@ from playwright.async_api import async_playwright
 from agent import Inbox, log
 
 
+async def sent(page) -> None:
+    """Fails now, with the site's reason, rather than after five minutes of waiting."""
+    heading = await page.get_by_role("heading").first.inner_text()
+    if heading != "Check your email":
+        raise RuntimeError(await page.locator("main").inner_text())
+
+
 async def main() -> int:
     url = os.environ.get("SITE_URL", "http://localhost:8765")
     inbox = Inbox()
@@ -36,6 +43,7 @@ async def main() -> int:
             await page.get_by_label("Email").fill(email)
             await page.get_by_label("Password").fill(f"First-{secrets.token_hex(4)}")
             await page.get_by_role("button", name="Sign up").click()
+            await sent(page)
 
             code = await inbox.next()
             log(f"read code {code.codes[0]}")
@@ -45,6 +53,7 @@ async def main() -> int:
 
             await page.get_by_role("link", name="Forgot password?").click()
             await page.get_by_role("button", name="Send reset link").click()
+            await sent(page)
 
             reset = await inbox.next()
             log(f"read link {reset.links[0]}")
