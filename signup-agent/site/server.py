@@ -65,7 +65,7 @@ class Mailer:
         )
         if sent.status_code == 202:
             return None
-        # The SDK parses only the statuses it documents; a 403 comes back as None.
+        # Judged by the status: a client older than 1.16.1 parses a 403 as None.
         try:
             return json.loads(sent.content)["error"]["message"]
         except (ValueError, KeyError, TypeError):
@@ -256,12 +256,12 @@ class Site(BaseHTTPRequestHandler):
             if email in ACCOUNTS:
                 TOKENS[token] = ("reset", email)
                 log(f"password reset requested for {email}")
-                # Works around the duplicate-body guard (strategy/agentmail-teardown §5.2); remove once it is fixed.
-                requested = time.strftime("%d %B %Y at %H:%M:%S UTC", time.gmtime())
+                # The same words for every user on purpose: what a real site
+                # sends. Only the token differs, and that is enough (contract 1.16.1).
                 failed = self.mailer.send(
                     email,
                     "Reset your password",
-                    f"Somebody asked to reset the password for this address on {requested}.\n\n"
+                    "Somebody asked to reset the password for this address.\n\n"
                     f"Reset your password:\n{self.base}/reset?token={token}\n\n"
                     "If it wasn’t you, ignore this email.\n",
                 )
