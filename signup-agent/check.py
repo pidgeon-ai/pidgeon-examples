@@ -19,10 +19,18 @@ from agent import Inbox, log
 
 
 async def sent(page) -> None:
-    """Fails now, with the site's reason, rather than after five minutes of waiting."""
+    """Fails now, with the site's reason, rather than after two minutes of waiting."""
     heading = await page.get_by_role("heading").first.inner_text()
     if heading != "Check your email":
         raise RuntimeError(await page.locator("main").inner_text())
+
+
+async def received(inbox: Inbox):
+    """The next email, or a failure that says nothing came."""
+    email = await inbox.next(timeout=120)
+    if email is None:
+        raise RuntimeError(f"No email reached {inbox.email} in two minutes.")
+    return email
 
 
 async def main() -> int:
@@ -45,7 +53,7 @@ async def main() -> int:
             await page.get_by_role("button", name="Sign up").click()
             await sent(page)
 
-            code = await inbox.next()
+            code = await received(inbox)
             log(f"read code {code.codes[0]}")
             await page.get_by_label("Verification code").fill(code.codes[0])
             await page.get_by_role("button", name="Verify").click()
@@ -55,7 +63,7 @@ async def main() -> int:
             await page.get_by_role("button", name="Send reset link").click()
             await sent(page)
 
-            reset = await inbox.next()
+            reset = await received(inbox)
             log(f"read link {reset.links[0]}")
             await page.goto(reset.links[0])
             await page.get_by_label("New password").fill(f"Second-{secrets.token_hex(4)}")

@@ -59,11 +59,17 @@ class Mailer:
 
     def send(self, to: str, subject: str, text: str) -> str | None:
         """None when it went; otherwise what Pidgeon said, for the page and the log."""
-        sent = messages_send.sync(
+        sent = messages_send.sync_detailed(
             client=self.client,
             body=MessagesSendBody(from_=self.address, to=to, subject=subject, text=text),
         )
-        return sent.error.message if isinstance(sent, Error) else None
+        if sent.status_code == 202:
+            return None
+        # The SDK parses only the statuses it documents; a 403 comes back as None.
+        try:
+            return json.loads(sent.content)["error"]["message"]
+        except (ValueError, KeyError, TypeError):
+            return f"{sent.status_code} {sent.content[:200]!r}"
 
 
 PAGE = """<!doctype html>
@@ -250,10 +256,12 @@ class Site(BaseHTTPRequestHandler):
             if email in ACCOUNTS:
                 TOKENS[token] = ("reset", email)
                 log(f"password reset requested for {email}")
+                # Works around the duplicate-body guard (strategy/agentmail-teardown §5.2); remove once it is fixed.
+                requested = time.strftime("%d %B %Y at %H:%M:%S UTC", time.gmtime())
                 failed = self.mailer.send(
                     email,
                     "Reset your password",
-                    "Somebody asked to reset the password for this address.\n\n"
+                    f"Somebody asked to reset the password for this address on {requested}.\n\n"
                     f"Reset your password:\n{self.base}/reset?token={token}\n\n"
                     "If it wasn’t you, ignore this email.\n",
                 )

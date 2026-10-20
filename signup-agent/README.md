@@ -7,7 +7,11 @@ waits for the verification email, and types in the code. Then it asks for a
 password reset, and the reset arrives at the same address, because the
 address is still its own. [Browser Use](https://docs.browser-use.com) drives
 the browser. Two tools on the [`pidgeon`](https://pypi.org/project/pidgeon/)
-SDK give the model the inbox, in [`agent.py`](agent.py).
+SDK give the model the inbox, in [`agent.py`](agent.py): `create_inbox` makes
+the one address the run uses (asked again, it returns the same one), and
+`wait_for_email` waits up to 30 seconds and either returns the code and link or
+says nothing has come yet, so the model asks again instead of starting over
+with a new address.
 
 It runs against [`site/`](site/server.py), a one-file sign-up page in this
 folder that sends its emails through Pidgeon, so it automates nobody's real
