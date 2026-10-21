@@ -43,9 +43,9 @@ from browser_use import Agent, Browser, ChatAnthropic, ChatOpenAI, Tools
 from pidgeon import AuthenticatedClient
 from pidgeon.api.identities import identities_create, identities_delete, identities_list
 from pidgeon.api.messages import messages_await
+from pidgeon.errors import PidgeonError
 from pidgeon.models import (
     AwaitedMessage,
-    Error,
     IdentitiesCreateBody,
     IdentitiesCreateBodyType,
     MessagesAwaitBody,
@@ -98,8 +98,7 @@ class Inbox:
                 expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
             ),
         )
-        if isinstance(created, Error):
-            raise RuntimeError(created.error.message)
+        # A refusal raises PidgeonError, with the API's code and reason.
         self.id, self.email = created.data.id, created.data.email
         # Everything since the address existed, by the server's clock.
         self._after = datetime.fromisoformat(created.data.created_at)
@@ -113,7 +112,7 @@ class Inbox:
         # Until a message comes or the address is deleted: how long a caller
         # is willing to wait is `next`'s business, not the listener's.
         while True:
-            response = await messages_await.asyncio_detailed(
+            answer = await messages_await.asyncio(
                 client=self.client,
                 identity_id=self.id,
                 has_code=MessagesAwaitHasCode.TRUE,
@@ -122,9 +121,6 @@ class Inbox:
                 timeout=120,
                 after=self._after,
             )
-            answer = response.parsed
-            if isinstance(answer, Error) or answer is None:
-                raise RuntimeError(f"Waiting failed: {response.status_code} {response.content[:300]!r}")
             # Where the next wait picks up, so nothing in between is missed.
             self._after = datetime.fromisoformat(answer.data.cursor)
             if answer.data.message:
@@ -164,9 +160,10 @@ class Inbox:
 
     async def sweep(self) -> None:
         """Deletes this example's addresses left over from a run that crashed."""
-        listed = await identities_list.asyncio(client=self.client, limit=100)
-        if isinstance(listed, Error):
-            return
+        try:
+            listed = await identities_list.asyncio(client=self.client, limit=100)
+        except PidgeonError:
+            return  # Best effort: an address left over expires on its own within the hour.
         hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
         for address in listed.data:
             if address.local_part.startswith(PREFIX) and datetime.fromisoformat(address.created_at) < hour_ago:

@@ -25,7 +25,8 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from pidgeon import AuthenticatedClient
 from pidgeon.api.identities import identities_list
 from pidgeon.api.messages import messages_send
-from pidgeon.models import Error, MessagesSendBody
+from pidgeon.errors import PidgeonError
+from pidgeon.models import MessagesSendBody
 
 # run.sh sets it, so the site's lines and the agent's share one clock.
 START = float(os.environ.get("RUN_STARTED", time.time()))
@@ -53,23 +54,22 @@ class Mailer:
             token=os.environ["SITE_PIDGEON_API_KEY"],
         )
         listed = identities_list.sync(client=self.client)
-        if isinstance(listed, Error) or not listed.data:
+        if not listed.data:
             sys.exit("SITE_PIDGEON_API_KEY reaches no address. Run `python site/sender.py` to make one.")
         self.address = listed.data[0].email
 
     def send(self, to: str, subject: str, text: str) -> str | None:
         """None when it went; otherwise what Pidgeon said, for the page and the log."""
-        sent = messages_send.sync_detailed(
-            client=self.client,
-            body=MessagesSendBody(from_=self.address, to=to, subject=subject, text=text),
-        )
-        if sent.status_code == 202:
-            return None
-        # Judged by the status: a client older than 1.16.1 parses a 403 as None.
+        # A refusal raises: a `403 abuse_blocked` came back as None before
+        # pidgeon 1.19, and this site took None for "sent".
         try:
-            return json.loads(sent.content)["error"]["message"]
-        except (ValueError, KeyError, TypeError):
-            return f"{sent.status_code} {sent.content[:200]!r}"
+            messages_send.sync(
+                client=self.client,
+                body=MessagesSendBody(from_=self.address, to=to, subject=subject, text=text),
+            )
+        except PidgeonError as error:
+            return f"{error.code}: {error.message}" if error.code else error.message
+        return None
 
 
 PAGE = """<!doctype html>

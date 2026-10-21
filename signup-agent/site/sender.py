@@ -9,7 +9,6 @@ that one address and do nothing else, and adds it to `.env` as
 never needs the site's.
 """
 
-import json
 import os
 import secrets
 import sys
@@ -19,7 +18,6 @@ from pidgeon import AuthenticatedClient
 from pidgeon.api.identities import identities_create
 from pidgeon.api.keys import keys_create
 from pidgeon.models import (
-    Error,
     IdentitiesCreateBody,
     IdentitiesCreateBodyType,
     KeysCreateBody,
@@ -47,11 +45,8 @@ def main() -> None:
             type_=IdentitiesCreateBodyType.AGENT,
         ),
     )
-    if isinstance(address, Error):
-        sys.exit(address.error.message)
 
-    # `_detailed` for the raw body: pidgeon 1.14's typed answer leaves out the token.
-    minted = keys_create.sync_detailed(
+    minted = keys_create.sync(
         client=client,
         body=KeysCreateBody(
             name="signup-agent demo site",
@@ -59,11 +54,8 @@ def main() -> None:
             access=KeysCreateBodyAccess.SEND,
         ),
     )
-    if isinstance(minted.parsed, Error):
-        sys.exit(minted.parsed.error.message)
-
     # Returned once, here, and nowhere else.
-    token = json.loads(minted.content)["data"]["token"]
+    token = minted.data.token
     lines = [line for line in ENV.read_text().splitlines() if not line.startswith("SITE_PIDGEON_API_KEY=")]
     ENV.write_text("\n".join([*lines, f"SITE_PIDGEON_API_KEY={token}"]) + "\n")
 
